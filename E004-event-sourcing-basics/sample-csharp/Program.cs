@@ -88,7 +88,9 @@ namespace E004_event_sourcing_basics
             // our current understanding of the state of the factory
             // they get their data from the methods that use them while the methods react to events
             readonly List<string> _ourListOfEmployeeNames = new List<string>();
-            readonly List<CarPart[]> _shipmentsWaitingToBeUnloaded = new List<CarPart[]>(); 
+            readonly List<CarPart[]> _shipmentsWaitingToBeUnloaded = new List<CarPart[]>();
+            readonly List<CarPart[]> _carpartsInStock = new List<CarPart[]>();
+            readonly List<string> _producedCars = new List<string>();
 
             public void AssignEmployeeToFactory(string employeeName)
             {
@@ -152,6 +154,61 @@ namespace E004_event_sourcing_basics
                             Meaning = "awe in the face of the amount of parts delivered"
                         });
                 }
+            }
+
+            public void UnloadShipmentFromCargoBay(string employeeName)
+            {
+                Print("?> Command: Unload shipment from cargo bay");
+
+                 if (!_ourListOfEmployeeNames.Contains(employeeName))
+                 {
+                     Fail(":> Sorry, but this employee is unknown in the factory");
+                     return;
+                 }
+
+                if (!_shipmentsWaitingToBeUnloaded.Any())
+                {
+                    Fail(":> No shipments waiting...");
+                    return;
+                }
+                
+                DoRealWork("Unloading...");
+                RecordThat(new ShipmentUnloadedFromCargoBay
+                               {
+                                   UnloadedBy = employeeName,
+                                   CarParts = _shipmentsWaitingToBeUnloaded.First()
+                               });
+            }
+
+            public void ProduceCar(string employeeName, string carModel)
+            {
+                Print(string.Format("?> Command: produce car of model {0}", carModel));
+
+                if (carModel != "T")
+                {
+                    Fail(":> We can only produce Model T cars in this factory!");
+                    return;
+                }
+
+                if (!_carpartsInStock.Any())
+                {
+                    Fail(":> There are carparts needed to produce a car!");
+                    return;
+                }
+
+                if (!_ourListOfEmployeeNames.Contains(employeeName))
+                {
+                    Fail(":> Sorry, but this employee is unknown in the factory");
+                    return;
+                }
+                
+                DoRealWork(string.Format("Producing a {0}", carModel));
+                
+                RecordThat(new CarProduced
+                               {
+                                   Model = carModel,
+                                   ProducedBy = employeeName
+                               } );
             }
             
 
@@ -217,6 +274,38 @@ namespace E004_event_sourcing_basics
             {
                 
             }
+            void AnnounceInsideFactory(ShipmentUnloadedFromCargoBay e)
+            {
+                _shipmentsWaitingToBeUnloaded.Remove(e.CarParts);
+                
+                // should this be here? It feels inappropriate. 
+                // what if it's not internal state but an external component (service) that should be notified?
+                _carpartsInStock.Add(e.CarParts);
+                
+            }
+            void AnnounceInsideFactory(CarProduced e)
+            {
+                _producedCars.Add(e.Model);
+            }
+        }
+
+        public class ShipmentUnloadedFromCargoBay : IEvent
+        {
+            public string UnloadedBy;
+            public CarPart[] CarParts;
+
+            public override string ToString()
+            {
+                var builder = new StringBuilder();
+                builder
+                    .AppendFormat("Shipment unloaded from cargo bay by {0}:", UnloadedBy)
+                    .AppendLine();
+                foreach (var carPart in CarParts)
+                {
+                    builder.AppendFormat("     {0} {1} pcs", carPart.Name, carPart.Quantity).AppendLine();
+                }
+                return builder.ToString();
+            }
         }
 
         public class EmployeeAssignedToFactory : IEvent
@@ -256,6 +345,17 @@ namespace E004_event_sourcing_basics
             }
         }
 
+       public class CarProduced : IEvent
+       {
+           public string Model;
+           public string ProducedBy;
+
+           public override string ToString()
+           {
+               return string.Format("worker '{0}' produced a car of model '{1}'", ProducedBy, Model);
+           }
+       }
+
 
         // let's run this implementation3 of the factory
         // (right-click on this project in Visual Studio and choose "set as StartUp project"
@@ -286,6 +386,13 @@ namespace E004_event_sourcing_basics
                     new CarPart("bits and pieces", 2)
                 });
 
+            factory.UnloadShipmentFromCargoBay("yoda");
+
+            factory.ProduceCar("luke", "T");
+
+            // try this again
+            factory.ProduceCar("luke", "Y");
+
 
             Print("\r\nIt's the end of the day. Let's read our journal of events once more:\r\n");
             Print("\r\nWe should only see events below that were actually allowed to be recorded.\r\n");
@@ -295,6 +402,7 @@ namespace E004_event_sourcing_basics
             }
 
             Print("\r\nIt seems, this was an interesting day!  Two Yoda's there should be not!");
+            Console.ReadLine(); 
         }
 
         static void Print(string format, params object[] args)
